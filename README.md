@@ -1,6 +1,6 @@
 # U-Blox Sockets
 
-This is a helper crate for [ublox-cellular](https://github.com/BlackbirdHQ/ublox-cellular-rs). Look more from there how it is used.
+This is a helper crate for [ublox-cellular](https://github.com/BlackbirdHQ/ublox-cellular-rs) & [ublox-short-range](https://github.com/BlackbirdHQ/ublox-short-range-rs). Look more from there how it is used.
 
 ## License
 
