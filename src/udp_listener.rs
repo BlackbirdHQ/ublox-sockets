@@ -1,5 +1,6 @@
-use embedded_nal::{IpAddr, SocketAddr};
+use embedded_nal::SocketAddr;
 use heapless::{spsc::Queue, FnvIndexMap};
+use hash32::Hash;
 
 use crate::SocketHandle;
 
@@ -7,8 +8,7 @@ pub struct UdpListener<const N: usize, const L: usize> {
     handles: FnvIndexMap<SocketHandle, u16, N>,
     connections: FnvIndexMap<u16, Queue<(SocketHandle, SocketAddr), L>, N>,
     /// Maps Socket addresses to handles for send_to()  
-    // outgoing: FnvIndexMap<SocketAddr, SocketHandle, N>,
-    outgoing: FnvIndexMap<u8, SocketHandle, N>,
+    outgoing: FnvIndexMap<SocketAddrWrapper, SocketHandle, N>,
 }
 
 impl<const N: usize, const L: usize> UdpListener<N, L> {
@@ -31,6 +31,7 @@ impl<const N: usize, const L: usize> UdpListener<N, L> {
         Ok(())
     }
 
+    /// Get incomming connection queue for port
     pub fn incoming(&mut self, port: u16) -> Option<&mut Queue<(SocketHandle, SocketAddr), L>> {
         self.connections.get_mut(&port)
     }
@@ -39,7 +40,7 @@ impl<const N: usize, const L: usize> UdpListener<N, L> {
         self.handles.get(&handle).is_some()
     }
 
-
+    /// See if a connection is available for server
     pub fn available(&mut self, handle: SocketHandle) -> Result<bool, ()> {
         let port = self.handles.get(&handle).ok_or(())?;
         Ok(!self.connections.get_mut(port).ok_or(())?.is_empty())
@@ -55,21 +56,30 @@ impl<const N: usize, const L: usize> UdpListener<N, L> {
     }
 
     pub fn outgoing_connection(&mut self, handle: SocketHandle, addr: SocketAddr) -> Result<Option<SocketHandle>, ()> {
-        if let IpAddr::V4(ip) = addr.ip(){
-            if self.outgoing.contains_key(&ip.octets()[3]) {
-                return Err(());
-            }
-            self.outgoing.insert(ip.octets()[3], handle).map_err(|_| () )
-        } else {
-            Err(())
-        }
+        self.outgoing.insert(SocketAddrWrapper(addr), handle).map_err(|_| () )
     }
 
-    pub fn get_outgoing(&mut self, addr: SocketAddr) -> Result<Option<SocketHandle>, ()> {
-        if let IpAddr::V4(ip) = addr.ip(){
-            Ok(self.outgoing.remove(&ip.octets()[3]))
-        } else {
-            Err(())
+    pub fn get_outgoing(&mut self, addr: SocketAddr) -> Option<SocketHandle> {
+        self.outgoing.remove(&SocketAddrWrapper(addr))
+    }
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct SocketAddrWrapper(SocketAddr);
+
+impl Hash for SocketAddrWrapper{
+    fn hash<H>(&self, state: &mut H)
+    where
+            H: hash32::Hasher {
+        match self.0 {
+            SocketAddr::V4(ip) => {
+                ip.ip().octets().hash(state);
+                ip.port().hash(state);
+            }
+            SocketAddr::V6(ip) => {
+                ip.ip().octets().hash(state);
+                ip.port().hash(state);
+            }
         }
     }
 }
