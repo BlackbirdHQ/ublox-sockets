@@ -1,6 +1,6 @@
 use embedded_nal::SocketAddr;
-use heapless::{spsc::Queue, FnvIndexMap};
 use hash32::Hash;
+use heapless::{spsc::Queue, FnvIndexMap};
 
 use crate::SocketHandle;
 
@@ -55,8 +55,14 @@ impl<const N: usize, const L: usize> UdpListener<N, L> {
             .ok_or(())
     }
 
-    pub fn outgoing_connection(&mut self, handle: SocketHandle, addr: SocketAddr) -> Result<Option<SocketHandle>, ()> {
-        self.outgoing.insert(SocketAddrWrapper(addr), handle).map_err(|_| () )
+    pub fn outgoing_connection(
+        &mut self,
+        handle: SocketHandle,
+        addr: SocketAddr,
+    ) -> Result<Option<SocketHandle>, ()> {
+        self.outgoing
+            .insert(SocketAddrWrapper(addr), handle)
+            .map_err(|_| ())
     }
 
     pub fn get_outgoing(&mut self, addr: SocketAddr) -> Option<SocketHandle> {
@@ -67,10 +73,11 @@ impl<const N: usize, const L: usize> UdpListener<N, L> {
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct SocketAddrWrapper(SocketAddr);
 
-impl Hash for SocketAddrWrapper{
+impl Hash for SocketAddrWrapper {
     fn hash<H>(&self, state: &mut H)
     where
-            H: hash32::Hasher {
+        H: hash32::Hasher,
+    {
         match self.0 {
             SocketAddr::V4(ip) => {
                 ip.ip().octets().hash(state);
