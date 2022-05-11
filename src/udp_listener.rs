@@ -5,10 +5,10 @@ use heapless::{spsc::Queue, FnvIndexMap};
 use crate::SocketHandle;
 
 pub struct UdpListener<const N: usize, const L: usize> {
+    /// Maps Server Socket handles to ports
     handles: FnvIndexMap<SocketHandle, u16, N>,
+    /// Maps Connection Sockets to remote socket address
     connections: FnvIndexMap<u16, Queue<(SocketHandle, SocketAddr), L>, N>,
-    /// Maps Socket addresses to handles for send_to()  
-    outgoing: FnvIndexMap<SocketAddrWrapper, SocketHandle, N>,
 }
 
 impl<const N: usize, const L: usize> UdpListener<N, L> {
@@ -16,7 +16,6 @@ impl<const N: usize, const L: usize> UdpListener<N, L> {
         Self {
             handles: FnvIndexMap::new(),
             connections: FnvIndexMap::new(),
-            outgoing: FnvIndexMap::new(),
         }
     }
 
@@ -36,6 +35,12 @@ impl<const N: usize, const L: usize> UdpListener<N, L> {
         self.connections.get_mut(&port)
     }
 
+    /// Returns true if port is UDP server port
+    pub fn is_port_bound(&self, port: u16) -> bool {
+        self.connections.get(&port).is_some()
+    }
+
+    /// Returns true if socket is UDP server socket
     pub fn is_bound(&self, handle: SocketHandle) -> bool {
         self.handles.get(&handle).is_some()
     }
@@ -46,27 +51,35 @@ impl<const N: usize, const L: usize> UdpListener<N, L> {
         Ok(!self.connections.get_mut(port).ok_or(())?.is_empty())
     }
 
-    pub fn accept(&mut self, handle: SocketHandle) -> Result<(SocketHandle, SocketAddr), ()> {
+    /// Gives the first connected socket to receive from.
+    /// To peek next socket, send_to for first socket.
+    pub fn peek_remote(&mut self, handle: SocketHandle) -> Result<&(SocketHandle, SocketAddr), ()> {
         let port = self.handles.get(&handle).ok_or(())?;
-        self.connections
-            .get_mut(port)
-            .ok_or(())?
-            .dequeue()
-            .ok_or(())
+        self.connections.get_mut(port).ok_or(())?.peek().ok_or(())
     }
 
-    pub fn outgoing_connection(
+    /// Gives the first connected socket to receive from.
+    /// To get next socket, removing it from queue.
+    pub fn get_remote(&mut self, handle: SocketHandle) -> Result<&(SocketHandle, SocketAddr), ()> {
+        let port = self.handles.get(&handle).ok_or(())?;
+        self.connections.get_mut(port).ok_or(())?.peek().ok_or(())
+    }
+
+    /// Gives an outgoing connection, if first in queue matches socketaddr
+    /// Removes it from stack.
+    pub fn get_outgoing(
         &mut self,
-        handle: SocketHandle,
+        handle: &SocketHandle,
         addr: SocketAddr,
-    ) -> Result<Option<SocketHandle>, ()> {
-        self.outgoing
-            .insert(SocketAddrWrapper(addr), handle)
-            .map_err(|_| ())
-    }
-
-    pub fn get_outgoing(&mut self, addr: SocketAddr) -> Option<SocketHandle> {
-        self.outgoing.remove(&SocketAddrWrapper(addr))
+    ) -> Option<SocketHandle> {
+        let port = self.handles.get(handle)?;
+        let queue = self.connections.get_mut(port)?;
+        let (_, queue_addr) = queue.peek()?;
+        if *queue_addr == addr {
+            let (handle, _) = queue.dequeue()?;
+            return Some(handle);
+        }
+        None
     }
 }
 
