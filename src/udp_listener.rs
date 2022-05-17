@@ -2,7 +2,7 @@ use embedded_nal::SocketAddr;
 use hash32::Hash;
 use heapless::{spsc::Queue, FnvIndexMap};
 
-use crate::SocketHandle;
+use crate::{Error, SocketHandle};
 
 pub struct UdpListener<const N: usize, const L: usize> {
     /// Maps Server Socket handles to ports
@@ -19,15 +19,30 @@ impl<const N: usize, const L: usize> UdpListener<N, L> {
         }
     }
 
-    pub fn bind(&mut self, handle: SocketHandle, port: u16) -> Result<(), ()> {
+    /// Bind sockethandle to port, and create queue for incomming sockets
+    pub fn bind(&mut self, handle: SocketHandle, port: u16) -> Result<(), Error> {
         if self.handles.contains_key(&handle) {
-            return Err(());
+            return Err(Error::ListenerError);
         }
 
-        self.handles.insert(handle, port).map_err(drop)?;
-        self.connections.insert(port, Queue::new()).map_err(drop)?;
+        self.handles
+            .insert(handle, port)
+            .map_err(|_| Error::ListenerError)?;
+        self.connections
+            .insert(port, Queue::new())
+            .map_err(|_| Error::ListenerError)?;
 
         Ok(())
+    }
+
+    /// Unbind sockethandle to port, and create queue for incomming sockets
+    pub fn unbind(&mut self, handle: SocketHandle) -> Result<(), Error> {
+        if let Some(port) = self.handles.remove(&handle) {
+            self.connections.remove(&port);
+            Ok(())
+        } else {
+            Err(Error::ListenerError)
+        }
     }
 
     /// Get incomming connection queue for port
@@ -46,23 +61,44 @@ impl<const N: usize, const L: usize> UdpListener<N, L> {
     }
 
     /// See if a connection is available for server
-    pub fn available(&mut self, handle: SocketHandle) -> Result<bool, ()> {
-        let port = self.handles.get(&handle).ok_or(())?;
-        Ok(!self.connections.get_mut(port).ok_or(())?.is_empty())
+    pub fn available(&mut self, handle: SocketHandle) -> Result<bool, Error> {
+        let port = self.handles.get(&handle).ok_or(Error::ListenerError)?;
+        Ok(!self
+            .connections
+            .get_mut(port)
+            .ok_or(Error::ListenerError)?
+            .is_empty())
     }
 
-    /// Gives the first connected socket to receive from.
-    /// To peek next socket, send_to for first socket.
-    pub fn peek_remote(&mut self, handle: SocketHandle) -> Result<&(SocketHandle, SocketAddr), ()> {
-        let port = self.handles.get(&handle).ok_or(())?;
-        self.connections.get_mut(port).ok_or(())?.peek().ok_or(())
+    /// Peek from queue of incomming connections for socket.
+    pub fn peek_remote(
+        &mut self,
+        handle: SocketHandle,
+    ) -> Result<&(SocketHandle, SocketAddr), Error> {
+        let port = self.handles.get(&handle).ok_or(Error::ListenerError)?;
+        self.connections
+            .get_mut(port)
+            .ok_or(Error::ListenerError)?
+            .peek()
+            .ok_or(Error::ListenerError)
     }
 
-    /// Gives the first connected socket to receive from.
-    /// To get next socket, removing it from queue.
-    pub fn get_remote(&mut self, handle: SocketHandle) -> Result<&(SocketHandle, SocketAddr), ()> {
-        let port = self.handles.get(&handle).ok_or(())?;
-        self.connections.get_mut(port).ok_or(())?.peek().ok_or(())
+    /// Pop from queue of incomming connections for socket.
+    pub fn get_remote(
+        &mut self,
+        handle: SocketHandle,
+    ) -> Result<(SocketHandle, SocketAddr), Error> {
+        let port = self.handles.get(&handle).ok_or(Error::ListenerError)?;
+        self.connections
+            .get_mut(port)
+            .ok_or(Error::ListenerError)?
+            .dequeue()
+            .ok_or(Error::ListenerError)
+    }
+
+    pub fn get_port(&mut self, handle: SocketHandle) -> Result<u16, Error> {
+        let port = self.handles.get(&handle).ok_or(Error::ListenerError)?;
+        Ok(*port)
     }
 
     /// Gives an outgoing connection, if first in queue matches socketaddr

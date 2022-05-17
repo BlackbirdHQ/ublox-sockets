@@ -47,6 +47,8 @@ pub enum Error {
 
     NotBound,
 
+    ListenerError,
+
     SocketSetFull,
     InvalidSocket,
     DuplicateSocket,
