@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 pub struct Handle(pub u8);
 
 /// An extensible set of sockets.
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Set<const TIMER_HZ: u32, const N: usize, const L: usize> {
     pub sockets: Vec<Option<Socket<TIMER_HZ, L>>, N>,
 }
