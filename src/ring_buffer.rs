@@ -1,8 +1,6 @@
 use super::{Error, Result};
 use core::cmp;
 
-use heapless::Vec;
-
 /// A ring buffer.
 ///
 /// This ring buffer implementation provides many ways to interact with it:
@@ -13,36 +11,29 @@ use heapless::Vec;
 ///
 /// This implementation is suitable for both simple uses such as a FIFO queue
 /// of UDP packets, and advanced ones such as a TCP reassembly buffer.
-#[derive(Debug, Default)]
-pub struct RingBuffer<T, const N: usize> {
-    storage: Vec<T, N>,
+#[derive(Debug)]
+pub struct RingBuffer<'a, T: 'a> {
+    storage: &'a mut [T],
     read_at: usize,
     length: usize,
 }
 
-impl<T: Default + Clone, const N: usize> RingBuffer<T, N> {
+impl<'a, T: 'a> From<&'a mut [T]> for RingBuffer<'a, T> {
+    fn from(value: &'a mut [T]) -> Self {
+        Self::new(value)
+    }
+}
+
+impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Create a ring buffer with the given storage.
     ///
     /// During creation, every element in `storage` is reset.
-    pub fn new() -> RingBuffer<T, N> {
-        let mut storage = Vec::new();
-        storage.resize_default(N).ok();
+    pub fn new(storage: &'a mut [T]) -> Self {
         RingBuffer {
             storage,
             read_at: 0,
             length: 0,
         }
-    }
-
-    // Internal helper for test functions
-    fn from_slice(slice: &[T]) -> RingBuffer<T, N>
-    where
-        T: Copy + core::fmt::Debug,
-    {
-        let mut rb = RingBuffer::new();
-        rb.enqueue_slice(slice);
-        rb.clear();
-        rb
     }
 
     /// Clear the ring buffer.
@@ -53,7 +44,7 @@ impl<T: Default + Clone, const N: usize> RingBuffer<T, N> {
 
     /// Return the maximum number of elements in the ring buffer.
     pub fn capacity(&self) -> usize {
-        self.storage.capacity()
+        self.storage.len()
     }
 
     /// Return the current number of elements in the ring buffer.
@@ -102,7 +93,7 @@ impl<T: Default + Clone, const N: usize> RingBuffer<T, N> {
 
 /// This is the "discrete" ring buffer interface: it operates with single elements,
 /// and boundary conditions (empty/full) are errors.
-impl<T: Default + Clone, const N: usize> RingBuffer<T, N> {
+impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Call `f` with a single buffer element, and enqueue the element if `f`
     /// returns successfully, or return `Err(Error::Exhausted)` if the buffer is full.
     pub fn enqueue_one_with<'b, R, F>(&'b mut self, f: F) -> Result<R>
@@ -163,7 +154,7 @@ impl<T: Default + Clone, const N: usize> RingBuffer<T, N> {
 
 /// This is the "continuous" ring buffer interface: it operates with element slices,
 /// and boundary conditions (empty/full) simply result in empty slices.
-impl<T: Default + core::fmt::Debug + Clone, const N: usize> RingBuffer<T, N> {
+impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Call `f` with the largest contiguous slice of unallocated buffer elements,
     /// and enqueue the amount of elements returned by `f`.
     ///
@@ -304,7 +295,7 @@ impl<T: Default + core::fmt::Debug + Clone, const N: usize> RingBuffer<T, N> {
 
 /// This is the "random access" ring buffer interface: it operates with element slices,
 /// and allows to access elements of the buffer that are not adjacent to its head or tail.
-impl<T: Default + Clone, const N: usize> RingBuffer<T, N> {
+impl<'a, T: 'a> RingBuffer<'a, T> {
     /// Return the largest contiguous slice of unallocated buffer elements starting
     /// at the given offset past the last allocated element, and up to the given size.
     pub fn get_unallocated(&mut self, offset: usize, mut size: usize) -> &mut [T] {
@@ -411,19 +402,14 @@ impl<T: Default + Clone, const N: usize> RingBuffer<T, N> {
     }
 }
 
-impl<T: Default + core::fmt::Debug + Copy, const N: usize> From<Vec<T, N>> for RingBuffer<T, N> {
-    fn from(slice: Vec<T, N>) -> RingBuffer<T, N> {
-        RingBuffer::from_slice(slice.as_ref())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_buffer_length_changes() {
-        let mut ring: RingBuffer<u8, 2> = RingBuffer::new();
+        let mut buf = [0u8; 2];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
         assert!(ring.is_empty());
         assert!(!ring.is_full());
         assert_eq!(ring.len(), 0);
@@ -447,7 +433,8 @@ mod tests {
 
     #[test]
     fn test_buffer_enqueue_dequeue_one_with() {
-        let mut ring: RingBuffer<u8, 5> = RingBuffer::new();
+        let mut buf = [0u8; 5];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
         assert_eq!(
             ring.dequeue_one_with(|_| unreachable!()) as Result<()>,
             Err(Error::Exhausted)
@@ -480,7 +467,8 @@ mod tests {
 
     #[test]
     fn test_buffer_enqueue_dequeue_one() {
-        let mut ring: RingBuffer<u8, 5> = RingBuffer::new();
+        let mut buf = [0u8; 5];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
         assert_eq!(ring.dequeue_one(), Err(Error::Exhausted));
 
         ring.enqueue_one().unwrap();
@@ -505,7 +493,8 @@ mod tests {
 
     #[test]
     fn test_buffer_enqueue_many_with() {
-        let mut ring: RingBuffer<u8, 12> = RingBuffer::from_slice(&[b'.'; 12]);
+        let mut buf = [b'.'; 12];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
 
         assert_eq!(
             ring.enqueue_many_with(|buf| {
@@ -565,7 +554,8 @@ mod tests {
 
     #[test]
     fn test_buffer_enqueue_many() {
-        let mut ring: RingBuffer<u8, 12> = RingBuffer::from_slice(&[b'.'; 12]);
+        let mut buf = [b'.'; 12];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
 
         ring.enqueue_many(8).copy_from_slice(b"abcdefgh");
         assert_eq!(ring.len(), 8);
@@ -578,7 +568,8 @@ mod tests {
 
     #[test]
     fn test_buffer_enqueue_slice() {
-        let mut ring: RingBuffer<u8, 12> = RingBuffer::from_slice(&[b'.'; 12]);
+        let mut buf = [b'.'; 12];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
 
         assert_eq!(ring.enqueue_slice(b"abcdefgh"), 8);
         assert_eq!(ring.len(), 8);
@@ -597,7 +588,8 @@ mod tests {
 
     #[test]
     fn test_buffer_dequeue_many_with() {
-        let mut ring: RingBuffer<u8, 12> = RingBuffer::from_slice(&[b'.'; 12]);
+        let mut buf = [b'.'; 12];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
 
         assert_eq!(ring.enqueue_slice(b"abcdefghijkl"), 12);
 
@@ -640,7 +632,8 @@ mod tests {
 
     #[test]
     fn test_buffer_dequeue_many_with_wrapping() {
-        let mut ring: RingBuffer<u8, 12> = RingBuffer::from_slice(&[b'.'; 12]);
+        let mut buf = [b'.'; 12];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
 
         assert_eq!(ring.enqueue_slice(b"abcdefghijkl"), 12);
 
@@ -688,7 +681,8 @@ mod tests {
 
     #[test]
     fn test_buffer_dequeue_many() {
-        let mut ring: RingBuffer<u8, 12> = RingBuffer::from_slice(&[b'.'; 12]);
+        let mut buf = [b'.'; 12];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
 
         assert_eq!(ring.enqueue_slice(b"abcdefghijkl"), 12);
 
@@ -711,7 +705,8 @@ mod tests {
 
     #[test]
     fn test_buffer_dequeue_slice() {
-        let mut ring: RingBuffer<u8, 12> = RingBuffer::from_slice(&[b'.'; 12]);
+        let mut buf = [b'.'; 12];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
 
         assert_eq!(ring.enqueue_slice(b"abcdefghijkl"), 12);
 
@@ -734,7 +729,8 @@ mod tests {
 
     #[test]
     fn test_buffer_get_unallocated() {
-        let mut ring: RingBuffer<u8, 12> = RingBuffer::from_slice(&[b'.'; 12]);
+        let mut buf = [b'.'; 12];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
 
         assert_eq!(ring.get_unallocated(16, 4), b"");
 
@@ -767,7 +763,8 @@ mod tests {
 
     #[test]
     fn test_buffer_write_unallocated() {
-        let mut ring: RingBuffer<u8, 12> = RingBuffer::from_slice(&[b'.'; 12]);
+        let mut buf = [b'.'; 12];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
         ring.enqueue_many(6).copy_from_slice(b"abcdef");
         ring.dequeue_many(6).copy_from_slice(b"ABCDEF");
 
@@ -783,7 +780,8 @@ mod tests {
 
     #[test]
     fn test_buffer_get_allocated() {
-        let mut ring: RingBuffer<u8, 12> = RingBuffer::from_slice(&[b'.'; 12]);
+        let mut buf = [b'.'; 12];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
 
         assert_eq!(ring.get_allocated(16, 4), b"");
         assert_eq!(ring.get_allocated(0, 4), b"");
@@ -801,7 +799,8 @@ mod tests {
 
     #[test]
     fn test_buffer_read_allocated() {
-        let mut ring: RingBuffer<u8, 12> = RingBuffer::from_slice(&[b'.'; 12]);
+        let mut buf = [b'.'; 12];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
         ring.enqueue_many(12).copy_from_slice(b"abcdefghijkl");
 
         let mut data = [0; 6];
@@ -822,7 +821,8 @@ mod tests {
 
     // #[test]
     // fn test_buffer_with_no_capacity() {
-    //     let mut no_capacity: RingBuffer<u8, 0> = RingBuffer::new();
+    // let mut buf = [0u8; 0];
+    //     let mut no_capacity: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
 
     //     // Call all functions that calculate the remainder against rx_buffer.capacity()
     //     // with a backing storage with a length of 0.
@@ -839,7 +839,8 @@ mod tests {
     /// can reset the current buffer position.
     #[test]
     fn test_buffer_write_wholly() {
-        let mut ring: RingBuffer<u8, 8> = RingBuffer::from_slice(&[b'.'; 8]);
+        let mut buf = [b'.'; 8];
+        let mut ring: RingBuffer<u8> = RingBuffer::new(&mut buf[..]);
         ring.enqueue_many(2).copy_from_slice(b"xx");
         ring.enqueue_many(2).copy_from_slice(b"xx");
         assert_eq!(ring.len(), 4);

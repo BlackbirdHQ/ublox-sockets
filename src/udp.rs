@@ -1,11 +1,11 @@
 use core::cmp::min;
-use fugit::{ExtU32, SecsDurationU32};
 
-use super::{Error, Instant, Result, RingBuffer, Socket, SocketHandle, SocketMeta};
-pub use embedded_nal::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use super::{Error, Result, RingBuffer, SocketHandle};
+use embassy_time::{Duration, Instant};
+pub use no_std_net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 /// A UDP socket ring buffer.
-pub type SocketBuffer<const N: usize> = RingBuffer<u8, N>;
+pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -25,39 +25,46 @@ impl Default for State {
 /// A UDP socket is bound to a specific endpoint, and owns transmit and receive
 /// packet buffers.
 #[derive(Debug)]
-pub struct UdpSocket<const TIMER_HZ: u32, const L: usize> {
-    pub(crate) meta: SocketMeta,
+pub struct Socket<'a> {
+    pub(crate) handle: SocketHandle,
     pub(crate) endpoint: Option<SocketAddr>,
-    check_interval: SecsDurationU32,
-    read_timeout: Option<SecsDurationU32>,
+    check_interval: Duration,
+    read_timeout: Option<Duration>,
     state: State,
     available_data: usize,
-    rx_buffer: SocketBuffer<L>,
-    last_check_time: Option<Instant<TIMER_HZ>>,
-    closed_time: Option<Instant<TIMER_HZ>>,
+    rx_buffer: SocketBuffer<'a>,
+    last_check_time: Option<Instant>,
+    closed_time: Option<Instant>,
+
+    #[cfg(feature = "async")]
+    rx_waker: crate::waker::WakerRegistration,
+    #[cfg(feature = "async")]
+    tx_waker: crate::waker::WakerRegistration,
 }
 
-impl<const TIMER_HZ: u32, const L: usize> UdpSocket<TIMER_HZ, L> {
+impl<'a> Socket<'a> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(socket_id: u8) -> UdpSocket<TIMER_HZ, L> {
-        UdpSocket {
-            meta: SocketMeta {
-                handle: SocketHandle(socket_id),
-            },
-            check_interval: 15.secs(),
+    pub fn new(socket_id: u8, rx_buffer: impl Into<SocketBuffer<'a>>) -> Socket<'a> {
+        Socket {
+            handle: SocketHandle(socket_id),
+            check_interval: Duration::from_secs(15),
             state: State::Closed,
-            read_timeout: Some(15.secs()),
+            read_timeout: Some(Duration::from_secs(15)),
             endpoint: None,
             available_data: 0,
-            rx_buffer: SocketBuffer::new(),
+            rx_buffer: rx_buffer.into(),
             last_check_time: None,
             closed_time: None,
+            #[cfg(feature = "async")]
+            rx_waker: crate::waker::WakerRegistration::new(),
+            #[cfg(feature = "async")]
+            tx_waker: crate::waker::WakerRegistration::new(),
         }
     }
 
     /// Return the socket handle.
     pub fn handle(&self) -> SocketHandle {
-        self.meta.handle
+        self.handle
     }
 
     pub fn update_handle(&mut self, handle: SocketHandle) {
@@ -66,7 +73,42 @@ impl<const TIMER_HZ: u32, const L: usize> UdpSocket<TIMER_HZ, L> {
             self.handle(),
             handle
         );
-        self.meta.update(handle)
+        self.handle = handle;
+    }
+
+    /// Register a waker for receive operations.
+    ///
+    /// The waker is woken on state changes that might affect the return value
+    /// of `recv` method calls, such as receiving data, or the socket closing.
+    ///
+    /// Notes:
+    ///
+    /// - Only one waker can be registered at a time. If another waker was previously registered,
+    ///   it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
+    /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `recv` has
+    ///   necessarily changed.
+    #[cfg(feature = "async")]
+    pub fn register_recv_waker(&mut self, waker: &core::task::Waker) {
+        self.rx_waker.register(waker)
+    }
+
+    /// Register a waker for send operations.
+    ///
+    /// The waker is woken on state changes that might affect the return value
+    /// of `send` method calls, such as space becoming available in the transmit
+    /// buffer, or the socket closing.
+    ///
+    /// Notes:
+    ///
+    /// - Only one waker can be registered at a time. If another waker was previously registered,
+    ///   it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
+    /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `send` has
+    ///   necessarily changed.
+    #[cfg(feature = "async")]
+    pub fn register_send_waker(&mut self, waker: &core::task::Waker) {
+        self.tx_waker.register(waker)
     }
 
     /// Return the bound endpoint.
@@ -89,18 +131,18 @@ impl<const TIMER_HZ: u32, const L: usize> UdpSocket<TIMER_HZ, L> {
         self.state = state
     }
 
-    pub fn should_update_available_data(&mut self, ts: Instant<TIMER_HZ>) -> bool {
+    pub fn should_update_available_data(&mut self) -> bool {
         self.last_check_time
-            .replace(ts)
-            .and_then(|last_check_time| ts.checked_duration_since(last_check_time))
+            .replace(Instant::now())
+            .and_then(|last_check_time| Instant::now().checked_duration_since(last_check_time))
             .map(|dur| dur >= self.check_interval)
             .unwrap_or(false)
     }
 
-    pub fn recycle(&self, ts: Instant<TIMER_HZ>) -> bool {
+    pub fn recycle(&self) -> bool {
         if let Some(read_timeout) = self.read_timeout {
             self.closed_time
-                .and_then(|closed_time| ts.checked_duration_since(closed_time))
+                .and_then(|closed_time| Instant::now().checked_duration_since(closed_time))
                 .map(|dur| dur >= read_timeout)
                 .unwrap_or(false)
         } else {
@@ -108,8 +150,8 @@ impl<const TIMER_HZ: u32, const L: usize> UdpSocket<TIMER_HZ, L> {
         }
     }
 
-    pub fn closed_by_remote(&mut self, ts: Instant<TIMER_HZ>) {
-        self.closed_time.replace(ts);
+    pub fn closed_by_remote(&mut self) {
+        self.closed_time.replace(Instant::now());
     }
 
     /// Set available data.
@@ -137,6 +179,13 @@ impl<const TIMER_HZ: u32, const L: usize> UdpSocket<TIMER_HZ, L> {
         }
 
         self.endpoint.replace(endpoint.into());
+
+        #[cfg(feature = "async")]
+        {
+            self.rx_waker.wake();
+            self.tx_waker.wake();
+        }
+
         Ok(())
     }
 
@@ -164,7 +213,7 @@ impl<const TIMER_HZ: u32, const L: usize> UdpSocket<TIMER_HZ, L> {
 
     fn recv_impl<'b, F, R>(&'b mut self, f: F) -> Result<R>
     where
-        F: FnOnce(&'b mut SocketBuffer<L>) -> (usize, R),
+        F: FnOnce(&'b mut SocketBuffer<'a>) -> (usize, R),
     {
         // We may have received some data inside the initial SYN, but until the connection
         // is fully open we must not dequeue any data, as it may be overwritten by e.g.
@@ -231,18 +280,17 @@ impl<const TIMER_HZ: u32, const L: usize> UdpSocket<TIMER_HZ, L> {
 
     pub fn close(&mut self) {
         self.endpoint.take();
+        #[cfg(feature = "async")]
+        {
+            self.rx_waker.wake();
+            self.tx_waker.wake();
+        }
     }
 }
 
 #[cfg(feature = "defmt")]
-impl<const TIMER_HZ: u32, const L: usize> defmt::Format for UdpSocket<TIMER_HZ, L> {
+impl<const L: usize> defmt::Format for Socket<L> {
     fn format(&self, fmt: defmt::Formatter) {
         defmt::write!(fmt, "[{:?}, {:?}],", self.handle(), self.state())
-    }
-}
-
-impl<const TIMER_HZ: u32, const L: usize> Into<Socket<TIMER_HZ, L>> for UdpSocket<TIMER_HZ, L> {
-    fn into(self) -> Socket<TIMER_HZ, L> {
-        Socket::Udp(self)
     }
 }

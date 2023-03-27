@@ -1,23 +1,23 @@
-use super::{Error, Instant, Result, RingBuffer, Socket, SocketHandle, SocketMeta};
-use embedded_nal::SocketAddr;
-use fugit::{ExtU32, SecsDurationU32};
+use super::{Error, Result, RingBuffer, SocketHandle};
+use embassy_time::{Duration, Instant};
+use no_std_net::SocketAddr;
 
 /// A TCP socket ring buffer.
-pub type SocketBuffer<const N: usize> = RingBuffer<u8, N>;
+pub type SocketBuffer<'a> = RingBuffer<'a, u8>;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum State<const TIMER_HZ: u32> {
+pub enum State {
     /// Freshly created, unsullied
     Created,
     WaitingForConnect(SocketAddr),
     /// TCP connected or UDP has an address
     Connected(SocketAddr),
     /// Block all writes (Socket is closed by remote)
-    ShutdownForWrite(Instant<TIMER_HZ>),
+    ShutdownForWrite(Instant),
 }
 
 #[cfg(feature = "defmt")]
-impl<const TIMER_HZ: u32> defmt::Format for State<TIMER_HZ> {
+impl defmt::Format for State {
     fn format(&self, fmt: defmt::Formatter) {
         match self {
             State::Created => defmt::write!(fmt, "State::Created"),
@@ -28,7 +28,7 @@ impl<const TIMER_HZ: u32> defmt::Format for State<TIMER_HZ> {
     }
 }
 
-impl<const TIMER_HZ: u32> Default for State<TIMER_HZ> {
+impl Default for State {
     fn default() -> Self {
         State::Created
     }
@@ -41,35 +41,81 @@ impl<const TIMER_HZ: u32> Default for State<TIMER_HZ> {
 /// accept several connections, as many sockets must be allocated, or any new connection
 /// attempts will be reset.
 #[derive(Debug)]
-pub struct TcpSocket<const TIMER_HZ: u32, const L: usize> {
-    pub(crate) meta: SocketMeta,
-    state: State<TIMER_HZ>,
-    check_interval: SecsDurationU32,
-    read_timeout: Option<SecsDurationU32>,
+pub struct Socket<'a> {
+    pub(crate) handle: SocketHandle,
+    state: State,
+    check_interval: Duration,
+    read_timeout: Option<Duration>,
     available_data: usize,
-    rx_buffer: SocketBuffer<L>,
-    last_check_time: Option<Instant<TIMER_HZ>>,
+    rx_buffer: SocketBuffer<'a>,
+    last_check_time: Option<Instant>,
+
+    #[cfg(feature = "async")]
+    rx_waker: crate::waker::WakerRegistration,
+    #[cfg(feature = "async")]
+    tx_waker: crate::waker::WakerRegistration,
 }
 
-impl<const TIMER_HZ: u32, const L: usize> TcpSocket<TIMER_HZ, L> {
+impl<'a> Socket<'a> {
     /// Create a socket using the given buffers.
-    pub fn new(socket_id: u8) -> TcpSocket<TIMER_HZ, L> {
-        TcpSocket {
-            meta: SocketMeta {
-                handle: SocketHandle(socket_id),
-            },
+    pub fn new<T>(socket_id: u8, rx_buffer: T) -> Socket<'a>
+    where
+        T: Into<SocketBuffer<'a>>,
+    {
+        Socket {
+            handle: SocketHandle(socket_id),
             state: State::default(),
-            rx_buffer: SocketBuffer::new(),
+            rx_buffer: rx_buffer.into(),
             available_data: 0,
-            check_interval: 15.secs(),
-            read_timeout: Some(15.secs()),
+            check_interval: Duration::from_secs(15),
+            read_timeout: Some(Duration::from_secs(15)),
             last_check_time: None,
+
+            #[cfg(feature = "async")]
+            rx_waker: crate::waker::WakerRegistration::new(),
+            #[cfg(feature = "async")]
+            tx_waker: crate::waker::WakerRegistration::new(),
         }
+    }
+
+    /// Register a waker for receive operations.
+    ///
+    /// The waker is woken on state changes that might affect the return value
+    /// of `recv` method calls, such as receiving data, or the socket closing.
+    ///
+    /// Notes:
+    ///
+    /// - Only one waker can be registered at a time. If another waker was previously registered,
+    ///   it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
+    /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `recv` has
+    ///   necessarily changed.
+    #[cfg(feature = "async")]
+    pub fn register_recv_waker(&mut self, waker: &core::task::Waker) {
+        self.rx_waker.register(waker)
+    }
+
+    /// Register a waker for send operations.
+    ///
+    /// The waker is woken on state changes that might affect the return value
+    /// of `send` method calls, such as space becoming available in the transmit
+    /// buffer, or the socket closing.
+    ///
+    /// Notes:
+    ///
+    /// - Only one waker can be registered at a time. If another waker was previously registered,
+    ///   it is overwritten and will no longer be woken.
+    /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
+    /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `send` has
+    ///   necessarily changed.
+    #[cfg(feature = "async")]
+    pub fn register_send_waker(&mut self, waker: &core::task::Waker) {
+        self.tx_waker.register(waker)
     }
 
     /// Return the socket handle.
     pub fn handle(&self) -> SocketHandle {
-        self.meta.handle
+        self.handle
     }
 
     pub fn update_handle(&mut self, handle: SocketHandle) {
@@ -78,7 +124,7 @@ impl<const TIMER_HZ: u32, const L: usize> TcpSocket<TIMER_HZ, L> {
             self.handle(),
             handle
         );
-        self.meta.update(handle)
+        self.handle = handle;
     }
 
     /// Return the bound endpoint.
@@ -90,7 +136,7 @@ impl<const TIMER_HZ: u32, const L: usize> TcpSocket<TIMER_HZ, L> {
     }
 
     /// Return the connection state, in terms of the TCP state machine.
-    pub fn state(&self) -> &State<TIMER_HZ> {
+    pub fn state(&self) -> &State {
         &self.state
     }
 
@@ -99,14 +145,23 @@ impl<const TIMER_HZ: u32, const L: usize> TcpSocket<TIMER_HZ, L> {
         self.rx_buffer.clear();
         self.set_available_data(0);
         self.last_check_time = None;
+        self.rx_buffer.clear();
+
+        #[cfg(feature = "async")]
+        {
+            self.rx_waker.wake();
+            self.tx_waker.wake();
+        }
     }
 
-    pub fn should_update_available_data(&mut self, ts: Instant<TIMER_HZ>) -> bool {
+    pub fn should_update_available_data(&mut self) -> bool {
         // Cannot request available data on a socket that is closed by the
         // module
         if !self.is_connected() {
             return false;
         }
+
+        let ts = Instant::now();
 
         let should_update = self
             .last_check_time
@@ -121,11 +176,11 @@ impl<const TIMER_HZ: u32, const L: usize> TcpSocket<TIMER_HZ, L> {
         should_update
     }
 
-    pub fn recycle(&self, ts: Instant<TIMER_HZ>) -> bool {
+    pub fn recycle(&self) -> bool {
         if let Some(read_timeout) = self.read_timeout {
             match self.state {
                 State::Created | State::WaitingForConnect(_) | State::Connected(_) => false,
-                State::ShutdownForWrite(closed_time) => ts
+                State::ShutdownForWrite(closed_time) => Instant::now()
                     .checked_duration_since(closed_time)
                     .map(|dur| dur >= read_timeout)
                     .unwrap_or(false),
@@ -135,8 +190,8 @@ impl<const TIMER_HZ: u32, const L: usize> TcpSocket<TIMER_HZ, L> {
         }
     }
 
-    pub fn closed_by_remote(&mut self, ts: Instant<TIMER_HZ>) {
-        self.set_state(State::ShutdownForWrite(ts));
+    pub fn closed_by_remote(&mut self) {
+        self.set_state(State::ShutdownForWrite(Instant::now()));
         self.set_available_data(0);
     }
 
@@ -190,7 +245,7 @@ impl<const TIMER_HZ: u32, const L: usize> TcpSocket<TIMER_HZ, L> {
 
     fn recv_impl<'b, F, R>(&'b mut self, f: F) -> Result<R>
     where
-        F: FnOnce(&'b mut SocketBuffer<L>) -> (usize, R),
+        F: FnOnce(&'b mut SocketBuffer<'a>) -> (usize, R),
     {
         // We may have received some data inside the initial SYN, but until the connection
         // is fully open we must not dequeue any data, as it may be overwritten by e.g.
@@ -288,19 +343,22 @@ impl<const TIMER_HZ: u32, const L: usize> TcpSocket<TIMER_HZ, L> {
         self.rx_buffer.len()
     }
 
-    pub fn set_state(&mut self, state: State<TIMER_HZ>) {
+    pub fn set_state(&mut self, state: State) {
         debug!(
             "[TCP Socket] [{:?}] state change: {:?} -> {:?}",
             self.handle(),
             self.state,
             state
         );
-        self.state = state
-    }
-}
+        self.state = state;
 
-impl<const TIMER_HZ: u32, const L: usize> Into<Socket<TIMER_HZ, L>> for TcpSocket<TIMER_HZ, L> {
-    fn into(self) -> Socket<TIMER_HZ, L> {
-        Socket::Tcp(self)
+        #[cfg(feature = "async")]
+        {
+            // Wake all tasks waiting. Even if we haven't received/sent data, this
+            // is needed because return values of functions may change depending on the state.
+            // For example, a pending read has to fail with an error if the socket is closed.
+            self.rx_waker.wake();
+            self.tx_waker.wake();
+        }
     }
 }
