@@ -5,50 +5,20 @@ use serde::{Deserialize, Serialize};
 
 /// A handle, identifying a socket in a set.
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    hash32_derive::Hash32,
-    Default,
-    Serialize,
-    Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SocketHandle(pub u8);
 
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    hash32_derive::Hash32,
-    Default,
-    Serialize,
-    Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PeerHandle(pub u8);
 
 #[cfg(feature = "edm")]
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    hash32_derive::Hash32,
-    Default,
-    Serialize,
-    Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ChannelId(pub u8);

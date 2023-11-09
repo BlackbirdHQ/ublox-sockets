@@ -113,6 +113,7 @@ pub struct Socket<'a> {
     tx_waker: crate::waker::WakerRegistration,
 }
 
+#[cfg(feature = "defmt")]
 impl<'a> defmt::Format for Socket<'a> {
     fn format(&self, fmt: defmt::Formatter) {
         #[cfg(feature = "edm")]
@@ -120,16 +121,15 @@ impl<'a> defmt::Format for Socket<'a> {
         #[cfg(not(feature = "edm"))]
         let edm_chan = "N/A";
 
-
         defmt::write!(
-                fmt,
-                "{{ peer_handle: {}, edm_channel: {}, state: {}, remote_endpoint: {}, local_port: {}}}",
-                self.peer_handle,
-                edm_chan,
-                self.state,
-                defmt::Debug2Format(&self.remote_endpoint),
-                self.local_port
-            )
+            fmt,
+            "{{ peer_handle: {}, edm_channel: {}, state: {}, remote_endpoint: {}, local_port: {}}}",
+            self.peer_handle,
+            edm_chan,
+            self.state,
+            defmt::Debug2Format(&self.remote_endpoint),
+            self.local_port
+        )
     }
 }
 

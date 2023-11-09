@@ -1,6 +1,6 @@
 use core::cmp::min;
 
-use super::{Error, Result, RingBuffer, PeerHandle};
+use super::{Error, PeerHandle, Result, RingBuffer};
 use embassy_time::{Duration, Instant};
 pub use no_std_net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
@@ -45,7 +45,10 @@ pub struct Socket<'a> {
 
 impl<'a> Socket<'a> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(rx_buffer: impl Into<SocketBuffer<'a>>, tx_buffer: impl Into<SocketBuffer<'a>>) -> Socket<'a> {
+    pub fn new(
+        rx_buffer: impl Into<SocketBuffer<'a>>,
+        tx_buffer: impl Into<SocketBuffer<'a>>,
+    ) -> Socket<'a> {
         Socket {
             device_handle: None,
             check_interval: Duration::from_secs(15),

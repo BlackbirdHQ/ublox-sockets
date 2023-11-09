@@ -1,4 +1,4 @@
-use hash32::Hash;
+use core::hash::{Hash, Hasher};
 use heapless::{spsc::Queue, FnvIndexMap};
 use no_std_net::SocketAddr;
 
@@ -125,7 +125,7 @@ pub struct SocketAddrWrapper(SocketAddr);
 impl Hash for SocketAddrWrapper {
     fn hash<H>(&self, state: &mut H)
     where
-        H: hash32::Hasher,
+        H: Hasher,
     {
         match self.0 {
             SocketAddr::V4(ip) => {
