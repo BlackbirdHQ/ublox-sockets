@@ -622,7 +622,7 @@ impl<'a> Socket<'a> {
     {
         let (n, res) = self.tx_buffer.async_dequeue_many_with(f).await;
         if n > 0 {
-            defmt::trace!(
+            trace!(
                 "[{}] Dequeued {:?} bytes from TX buffer",
                 self.peer_handle,
                 n
