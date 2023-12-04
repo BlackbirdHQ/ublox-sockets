@@ -5,9 +5,10 @@ use no_std_net::SocketAddr;
 /// A TCP socket ring buffer.
 pub type SocketBuffer<const N: usize> = RingBuffer<u8, N>;
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub enum State {
     /// Freshly created, unsullied
+    #[default]
     Created,
     WaitingForConnect(SocketAddr),
     /// TCP connected or UDP has an address
@@ -25,12 +26,6 @@ impl defmt::Format for State {
             State::Connected(_) => defmt::write!(fmt, "State::Connected"),
             State::ShutdownForWrite(_) => defmt::write!(fmt, "State::ShutdownForWrite"),
         }
-    }
-}
-
-impl Default for State {
-    fn default() -> Self {
-        State::Created
     }
 }
 
@@ -301,8 +296,8 @@ impl<const L: usize> TcpSocket<L> {
     }
 }
 
-impl<const L: usize> Into<Socket<L>> for TcpSocket<L> {
-    fn into(self) -> Socket<L> {
-        Socket::Tcp(self)
+impl<const L: usize> From<TcpSocket<L>> for Socket<L> {
+    fn from(val: TcpSocket<L>) -> Self {
+        Socket::Tcp(val)
     }
 }

@@ -9,15 +9,11 @@ pub type SocketBuffer<const N: usize> = RingBuffer<u8, N>;
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Default)]
 pub enum State {
+    #[default]
     Closed,
     Established,
-}
-
-impl Default for State {
-    fn default() -> Self {
-        State::Closed
-    }
 }
 
 /// A User Datagram Protocol socket.
@@ -241,8 +237,8 @@ impl<const L: usize> defmt::Format for UdpSocket<L> {
     }
 }
 
-impl<const L: usize> Into<Socket<L>> for UdpSocket<L> {
-    fn into(self) -> Socket<L> {
-        Socket::Udp(self)
+impl<const L: usize> From<UdpSocket<L>> for Socket<L> {
+    fn from(val: UdpSocket<L>) -> Self {
+        Socket::Udp(val)
     }
 }

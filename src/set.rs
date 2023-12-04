@@ -144,22 +144,16 @@ impl<const N: usize, const L: usize> Set<N, L> {
     /// Iterate every socket in this set.
     pub fn iter(&self) -> impl Iterator<Item = (Handle, &Socket<L>)> {
         self.sockets.iter().filter_map(|slot| {
-            if let Some(socket) = slot {
-                Some((Handle(socket.handle().0), socket))
-            } else {
-                None
-            }
+            slot.as_ref()
+                .map(|socket| (Handle(socket.handle().0), socket))
         })
     }
 
     /// Iterate every socket in this set, as SocketRef.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, SocketRef<Socket<L>>)> {
         self.sockets.iter_mut().filter_map(|slot| {
-            if let Some(socket) = slot {
-                Some((Handle(socket.handle().0), SocketRef::new(socket)))
-            } else {
-                None
-            }
+            slot.as_mut()
+                .map(|socket| (Handle(socket.handle().0), SocketRef::new(socket)))
         })
     }
 }

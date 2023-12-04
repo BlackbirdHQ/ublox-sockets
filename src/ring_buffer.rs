@@ -453,12 +453,16 @@ mod tests {
             Err(Error::Exhausted)
         );
 
-        ring.enqueue_one_with(|e| Ok(e)).unwrap();
+        ring.enqueue_one_with(Ok).unwrap();
         assert!(!ring.is_empty());
         assert!(!ring.is_full());
 
         for i in 1..5 {
-            ring.enqueue_one_with(|e| Ok(*e = i)).unwrap();
+            ring.enqueue_one_with(|e| {
+                *e = i;
+                Ok(())
+            })
+            .unwrap();
             assert!(!ring.is_empty());
         }
         assert!(ring.is_full());

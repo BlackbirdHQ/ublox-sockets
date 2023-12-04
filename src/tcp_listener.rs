@@ -8,6 +8,12 @@ pub struct TcpListener<const N: usize, const L: usize> {
     connections: FnvIndexMap<u16, Queue<(SocketHandle, SocketAddr), L>, N>,
 }
 
+impl<const N: usize, const L: usize> Default for TcpListener<N, L> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<const N: usize, const L: usize> TcpListener<N, L> {
     pub fn new() -> Self {
         Self {
