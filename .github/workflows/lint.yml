@@ -10,75 +10,31 @@ defaults:
   run:
     shell: bash
 
-env:
-  CLIPPY_PARAMS: -W clippy::all -W clippy::pedantic -W clippy::nursery -W clippy::cargo
-
 jobs:
   rustfmt:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
-          components: rustfmt
+        uses: dsherret/rust-toolchain-file@v1
 
       - name: Run rustfmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check --verbose
-
-  # tomlfmt:
-  #   name: tomlfmt
-  #   runs-on: ubuntu-latest
-  #   steps:
-  #     - name: Checkout source code
-  #       uses: actions/checkout@v2
-
-  #     - name: Install Rust
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         toolchain: nightly
-  #         override: true
-
-  #     - name: Install tomlfmt
-  #       uses: actions-rs/install@v0.1
-  #       with:
-  #         crate: cargo-tomlfmt
-  #         version: latest
-  #         use-tool-cache: true
-
-  #     - name: Run Tomlfmt
-  #       uses: actions-rs/cargo@v1
-  #       with:
-  #         command: tomlfmt
-  #         args: --dryrun
+        run: cargo fmt --all -- --check --verbose
 
   clippy:
     name: clippy
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          components: clippy
+        uses: dsherret/rust-toolchain-file@v1
 
       - name: Run clippy
         uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          args: -- ${{ env.CLIPPY_PARAMS }}
