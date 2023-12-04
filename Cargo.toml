@@ -15,16 +15,14 @@ documentation = "https://docs.rs/ublox-sockets"
 
 [dependencies]
 serde = { version = "^1", default-features = false, features = ["derive"] }
-heapless = { version = "^0.7", features = ["serde"] }
+heapless = { version = "^0.8", features = ["serde"] }
 no-std-net = { version = "^0.5", features = ["serde"] }
 #atat = { version = "0.19", features = ["derive"] }
-atat = { git = "https://github.com/BlackbirdHQ/atat", rev = "31a45fc", features = [
+atat = { git = "https://github.com/BlackbirdHQ/atat", rev = "0f60a61", features = [
     "derive",
     "bytes",
 ] }
-hash32 = "0.2.1"
-hash32-derive = "^0.1.0"
-embassy-time = "0.1"
+embassy-time = "0.2"
 
 log = { version = "^0.4", default-features = false, optional = true }
 defmt = { version = "^0.3", optional = true }

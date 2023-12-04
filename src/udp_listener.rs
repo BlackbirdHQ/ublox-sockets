@@ -1,4 +1,3 @@
-use hash32::Hash;
 use heapless::{spsc::Queue, FnvIndexMap};
 use no_std_net::SocketAddr;
 
@@ -122,10 +121,10 @@ impl<const N: usize, const L: usize> UdpListener<N, L> {
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct SocketAddrWrapper(SocketAddr);
 
-impl Hash for SocketAddrWrapper {
+impl core::hash::Hash for SocketAddrWrapper {
     fn hash<H>(&self, state: &mut H)
     where
-        H: hash32::Hasher,
+        H: core::hash::Hasher,
     {
         match self.0 {
             SocketAddr::V4(ip) => {

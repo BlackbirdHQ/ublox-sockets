@@ -1,21 +1,10 @@
 use super::{AnySocket, Error, Result, Socket, SocketRef, SocketType};
-use atat::atat_derive::AtatLen;
 use heapless::Vec;
 use serde::{Deserialize, Serialize};
 
 /// A handle, identifying a socket in a set.
 #[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    hash32_derive::Hash32,
-    Default,
-    Serialize,
-    Deserialize,
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Handle(pub u8);
