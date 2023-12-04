@@ -1,8 +1,8 @@
 use core::cmp::min;
 
 use super::{Error, Result, RingBuffer, Socket, SocketHandle, SocketMeta};
+use core::net::SocketAddr;
 use embassy_time::{Duration, Instant};
-pub use no_std_net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 /// A UDP socket ring buffer.
 pub type SocketBuffer<const N: usize> = RingBuffer<u8, N>;

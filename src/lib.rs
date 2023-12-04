@@ -1,4 +1,5 @@
 #![cfg_attr(not(test), no_std)]
+#![feature(ip_in_core)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;

@@ -16,7 +16,6 @@ documentation = "https://docs.rs/ublox-sockets"
 [dependencies]
 serde = { version = "^1", default-features = false, features = ["derive"] }
 heapless = { version = "^0.8", features = ["serde"] }
-no-std-net = { version = "^0.5", features = ["serde"] }
 #atat = { version = "0.19", features = ["derive"] }
 atat = { git = "https://github.com/BlackbirdHQ/atat", rev = "38e0322", features = [
     "derive",
