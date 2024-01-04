@@ -18,7 +18,7 @@ serde = { version = "^1", default-features = false, features = ["derive"] }
 heapless = { version = "^0.8", features = ["serde"] }
 no-std-net = { version = "0.6", features = ["serde"] }
 hash32 = "^0.3"
-embassy-time = "0.1"
+embassy-time = "0.2"
 
 log = { version = "^0.4", default-features = false, optional = true }
 defmt = { version = "^0.3", optional = true }
