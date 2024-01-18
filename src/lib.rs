@@ -11,7 +11,6 @@ pub mod tcp_listener;
 pub mod udp;
 pub mod udp_listener;
 
-#[cfg(feature = "async")]
 mod waker;
 
 pub use self::ring_buffer::RingBuffer;

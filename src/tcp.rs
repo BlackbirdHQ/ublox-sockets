@@ -107,9 +107,7 @@ pub struct Socket<'a> {
     remote_last_ts: Option<Instant>,
     timer: Option<Timer>,
 
-    #[cfg(feature = "async")]
     rx_waker: crate::waker::WakerRegistration,
-    #[cfg(feature = "async")]
     tx_waker: crate::waker::WakerRegistration,
 }
 
@@ -120,16 +118,15 @@ impl<'a> defmt::Format for Socket<'a> {
         #[cfg(not(feature = "edm"))]
         let edm_chan = "N/A";
 
-
         defmt::write!(
-                fmt,
-                "{{ peer_handle: {}, edm_channel: {}, state: {}, remote_endpoint: {}, local_port: {}}}",
-                self.peer_handle,
-                edm_chan,
-                self.state,
-                defmt::Debug2Format(&self.remote_endpoint),
-                self.local_port
-            )
+            fmt,
+            "{{ peer_handle: {}, edm_channel: {}, state: {}, remote_endpoint: {}, local_port: {}}}",
+            self.peer_handle,
+            edm_chan,
+            self.state,
+            defmt::Debug2Format(&self.remote_endpoint),
+            self.local_port
+        )
     }
 }
 
@@ -153,9 +150,7 @@ impl<'a> Socket<'a> {
             timer: None,
             local_port: None,
 
-            #[cfg(feature = "async")]
             rx_waker: crate::waker::WakerRegistration::new(),
-            #[cfg(feature = "async")]
             tx_waker: crate::waker::WakerRegistration::new(),
         }
     }
@@ -172,7 +167,6 @@ impl<'a> Socket<'a> {
     /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `recv` has
     ///   necessarily changed.
-    #[cfg(feature = "async")]
     pub fn register_recv_waker(&mut self, waker: &core::task::Waker) {
         self.rx_waker.register(waker)
     }
@@ -190,7 +184,6 @@ impl<'a> Socket<'a> {
     /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `send` has
     ///   necessarily changed.
-    #[cfg(feature = "async")]
     pub fn register_send_waker(&mut self, waker: &core::task::Waker) {
         self.tx_waker.register(waker)
     }
@@ -222,11 +215,8 @@ impl<'a> Socket<'a> {
         self.remote_last_ts = None;
         self.timer = None;
 
-        #[cfg(feature = "async")]
-        {
-            self.rx_waker.wake();
-            self.tx_waker.wake();
-        }
+        self.rx_waker.wake();
+        self.tx_waker.wake();
     }
 
     /// Connect to a given endpoint.
@@ -236,12 +226,7 @@ impl<'a> Socket<'a> {
     /// This function returns an error if the socket was open; see [is_open](#method.is_open).
     /// It also returns an error if the local or remote port is zero, or if the remote address
     /// is unspecified.
-    pub fn connect<T>(
-        &mut self,
-        // cx: &mut Context,
-        remote_endpoint: T,
-        local_port: Option<u16>,
-    ) -> Result<()>
+    pub fn connect<T>(&mut self, remote_endpoint: T, local_port: Option<u16>) -> Result<()>
     where
         T: Into<SocketAddr>,
     {
@@ -589,7 +574,6 @@ impl<'a> Socket<'a> {
         self.remote_last_ts = Some(Instant::now());
         if n > 0 {
             defmt::trace!("[{}] Enqueued {:?} bytes to RX buffer", self.peer_handle, n);
-            #[cfg(feature = "async")]
             self.rx_waker.wake();
         }
         n
@@ -607,14 +591,12 @@ impl<'a> Socket<'a> {
                 n
             );
 
-            #[cfg(feature = "async")]
             self.tx_waker.wake();
         }
 
         res
     }
 
-    #[cfg(feature = "async")]
     pub async fn async_tx_dequeue<'b, F, FUT, R>(&'b mut self, f: F) -> R
     where
         F: FnOnce(&'b mut [u8]) -> FUT,
@@ -628,7 +610,6 @@ impl<'a> Socket<'a> {
                 n
             );
 
-            #[cfg(feature = "async")]
             self.tx_waker.wake();
         }
 
@@ -655,7 +636,6 @@ impl<'a> Socket<'a> {
 
         self.state = state;
 
-        #[cfg(feature = "async")]
         {
             // Wake all tasks waiting. Even if we haven't received/sent data, this
             // is needed because return values of functions may change depending on the state.

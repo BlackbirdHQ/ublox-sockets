@@ -1,6 +1,6 @@
 use core::cmp::min;
 
-use super::{Error, Result, RingBuffer, PeerHandle};
+use super::{Error, PeerHandle, Result, RingBuffer};
 use embassy_time::{Duration, Instant};
 pub use no_std_net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
@@ -26,8 +26,10 @@ impl Default for State {
 /// packet buffers.
 #[derive(Debug)]
 pub struct Socket<'a> {
-    pub(crate) device_handle: Option<PeerHandle>,
-    pub(crate) endpoint: Option<SocketAddr>,
+    pub peer_handle: Option<PeerHandle>,
+    #[cfg(feature = "edm")]
+    pub edm_channel: Option<super::ChannelId>,
+    pub endpoint: Option<SocketAddr>,
     check_interval: Duration,
     read_timeout: Option<Duration>,
     state: State,
@@ -37,17 +39,20 @@ pub struct Socket<'a> {
     last_check_time: Option<Instant>,
     closed_time: Option<Instant>,
 
-    #[cfg(feature = "async")]
     rx_waker: crate::waker::WakerRegistration,
-    #[cfg(feature = "async")]
     tx_waker: crate::waker::WakerRegistration,
 }
 
 impl<'a> Socket<'a> {
     /// Create an UDP socket with the given buffers.
-    pub fn new(rx_buffer: impl Into<SocketBuffer<'a>>, tx_buffer: impl Into<SocketBuffer<'a>>) -> Socket<'a> {
+    pub fn new(
+        rx_buffer: impl Into<SocketBuffer<'a>>,
+        tx_buffer: impl Into<SocketBuffer<'a>>,
+    ) -> Socket<'a> {
         Socket {
-            device_handle: None,
+            peer_handle: None,
+            #[cfg(feature = "edm")]
+            edm_channel: None,
             check_interval: Duration::from_secs(15),
             state: State::Closed,
             read_timeout: Some(Duration::from_secs(15)),
@@ -57,25 +62,9 @@ impl<'a> Socket<'a> {
             tx_buffer: tx_buffer.into(),
             last_check_time: None,
             closed_time: None,
-            #[cfg(feature = "async")]
             rx_waker: crate::waker::WakerRegistration::new(),
-            #[cfg(feature = "async")]
             tx_waker: crate::waker::WakerRegistration::new(),
         }
-    }
-
-    /// Return the socket handle.
-    pub fn device_handle(&self) -> PeerHandle {
-        self.device_handle.unwrap()
-    }
-
-    pub fn set_device_handle(&mut self, handle: PeerHandle) {
-        debug!(
-            "[UDP Socket] [{:?}] Updating handle {:?}",
-            self.device_handle(),
-            handle
-        );
-        self.device_handle.replace(handle);
     }
 
     /// Register a waker for receive operations.
@@ -90,7 +79,6 @@ impl<'a> Socket<'a> {
     /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `recv` has
     ///   necessarily changed.
-    #[cfg(feature = "async")]
     pub fn register_recv_waker(&mut self, waker: &core::task::Waker) {
         self.rx_waker.register(waker)
     }
@@ -108,7 +96,6 @@ impl<'a> Socket<'a> {
     /// - The Waker is woken only once. Once woken, you must register it again to receive more wakes.
     /// - "Spurious wakes" are allowed: a wake doesn't guarantee the result of `send` has
     ///   necessarily changed.
-    #[cfg(feature = "async")]
     pub fn register_send_waker(&mut self, waker: &core::task::Waker) {
         self.tx_waker.register(waker)
     }
@@ -126,9 +113,7 @@ impl<'a> Socket<'a> {
     pub fn set_state(&mut self, state: State) {
         debug!(
             "[UDP Socket] {:?}, state change: {:?} -> {:?}",
-            self.device_handle(),
-            self.state,
-            state
+            self.peer_handle, self.state, state
         );
         self.state = state
     }
@@ -182,11 +167,8 @@ impl<'a> Socket<'a> {
 
         self.endpoint.replace(endpoint.into());
 
-        #[cfg(feature = "async")]
-        {
-            self.rx_waker.wake();
-            self.tx_waker.wake();
-        }
+        self.rx_waker.wake();
+        self.tx_waker.wake();
 
         Ok(())
     }
@@ -282,17 +264,14 @@ impl<'a> Socket<'a> {
 
     pub fn close(&mut self) {
         self.endpoint.take();
-        #[cfg(feature = "async")]
-        {
-            self.rx_waker.wake();
-            self.tx_waker.wake();
-        }
+        self.rx_waker.wake();
+        self.tx_waker.wake();
     }
 }
 
 #[cfg(feature = "defmt")]
 impl<'a> defmt::Format for Socket<'a> {
     fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(fmt, "[{:?}, {:?}],", self.device_handle(), self.state())
+        defmt::write!(fmt, "[{:?}, {:?}],", self.peer_handle, self.state())
     }
 }

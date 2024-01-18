@@ -240,7 +240,6 @@ impl<'a, T: 'a> RingBuffer<'a, T> {
     /// # Panics
     /// This function panics if the amount of elements returned by `f` is larger
     /// than the size of the slice passed into it.
-    #[cfg(feature = "async")]
     pub async fn async_dequeue_many_with<'b, R, F, FUT>(&'b mut self, f: F) -> (usize, R)
     where
         F: FnOnce(&'b mut [T]) -> FUT,
